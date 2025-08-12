@@ -4,10 +4,10 @@
 
 ## 前提
 
-+ Windows PCで構成することを前提としています。それ以外のOSの場合、以下のファイルを適切なものと差し替える必要があります。
-* start_guardian.bat
-* nightly.ps1
-* deny_ollama.ps1
+* Windows PCで構成することを前提としています。それ以外のOSの場合、以下のファイルを適切なものと差し替える必要があります。
+    * start_guardian.bat
+    * nightly.ps1
+    * deny_ollama.ps1
 
 ## セットアップ
 ```bash
