@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>みまもりAI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes typingDots { 
+            0% { opacity: .2 } 
+            20% { opacity: 1 } 
+            100% { opacity: .2 } 
+        }
+        .typing-dot { animation: typingDots 1.4s infinite; }
+        .typing-dot:nth-child(2){ animation-delay: .2s; }
+        .typing-dot:nth-child(3){ animation-delay: .4s; }
+    </style>
+    <!-- Markdown parser & sanitizer -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.2/dist/purify.min.js"></script>
+
+    <style>
+    /* アシスタントのMarkdown用スタイル */
+    .md-content p { margin: .25rem 0; }
+    .md-content ul, .md-content ol { margin: .25rem 0 .5rem; padding-left: 1.25rem; }
+    .md-content ul { list-style: disc; }
+    .md-content ol { list-style: decimal; }
+    .md-content h1, .md-content h2, .md-content h3 { font-weight: 700; margin: .4rem 0 .2rem; }
+    .md-content h4, .md-content h5, .md-content h6 { font-weight: 600; margin: .3rem 0 .15rem; }
+    .md-content a { text-decoration: underline; }
+    .md-content code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: #f4f4f5; padding: 0 .25rem; border-radius: .25rem;
+    }
+    .md-content pre {
+        overflow: auto; background: #f4f4f5; padding: .6rem .8rem; border-radius: .5rem;
+    }
+    </style>
+</head>
+<body class="h-screen w-screen bg-gray-50 text-gray-900">
+<div class="h-full grid grid-cols-12">
+  <!-- Sidebar -->
+  <aside class="col-span-3 lg:col-span-2 bg-white border-r overflow-y-auto">
+    <div class="p-3 flex items-center justify-between">
+      <div class="font-semibold">スレッド</div>
+      <button id="newThread" class="text-sm px-2 py-1 bg-blue-600 text-white rounded">新規</button>
+    </div>
+    <ul id="threadList" class="px-2 space-y-1"></ul>
+  </aside>
+
+  <!-- Main -->
+  <main class="col-span-9 lg:col-span-10 flex flex-col h-full">
+    <header class="p-3 border-b bg-white">
+      <div class="text-lg font-semibold">みまもりAI</div>
+      <div class="text-xs text-gray-500">やさしい先生 / 安全フィルタ / メール通知</div>
+    </header>
+
+    <section id="messages" class="flex-1 overflow-y-auto p-4 space-y-3"></section>
+
+    <footer class="p-3 bg-white border-t">
+      <form id="composer" class="flex gap-2">
+        <textarea id="input" rows="2" placeholder="メッセージを入力…（Enterで送信／Shift+Enterで改行）"
+        class="flex-1 rounded border p-2"></textarea>
+        <button class="px-4 py-2 bg-blue-600 text-white rounded">送信</button>
+      </form>
+    <p class="mt-2 text-xs text-gray-500 leading-snug">
+        みまもりAIの回答は必ずしも正しいとは限りません。重要な情報は確認するようにしてください。
+    </p>
+    </footer>
+  </main>
+</div>
+
+<script>
+const API = "/chat"; // 同一オリジンで配信
+let threads = JSON.parse(localStorage.getItem("threads_v1")||"[]");
+threads.forEach(t => { t.msgs = (t.msgs||[]).filter(row => !row.typing); });
+let currentId = localStorage.getItem("current_thread") || null;
+let isComposing = false; // 日本語入力中のEnter誤送信を防ぐ
+
+function getThreadById(id){ return threads.find(t => t.id === id); }
+
+function renderMarkdown(mdText) {
+  try {
+    marked.setOptions({ gfm: true, breaks: true }); // 改行を <br> に
+    const html = marked.parse(mdText || "");
+    return DOMPurify.sanitize(html);
+  } catch (e) {
+    // 失敗時は最低限の改行だけ反映
+    return (mdText || "").replace(/\n/g, "<br>");
+  }
+}
+
+function save() {
+  // 保存時に typing 行を除去したスナップショットを書き出す
+  const snapshot = threads.map(t => ({
+    ...t,
+    msgs: (t.msgs || []).filter(r => !r.typing)
+  }));
+  localStorage.setItem("threads_v1", JSON.stringify(snapshot));
+  if (currentId) localStorage.setItem("current_thread", currentId);
+}
+
+function newThread() {
+  const id = "t_" + Date.now();
+  const t = { id, title: "新しいチャット", msgs: [] };
+  threads.unshift(t);
+  currentId = id;
+  save(); renderThreads(); renderMsgs();
+}
+
+function setThread(id) { currentId = id; save(); renderThreads(); renderMsgs(); }
+
+function currentThread() { return threads.find(t => t.id===currentId); }
+
+function renderThreads() {
+  const ul = document.getElementById("threadList");
+  ul.innerHTML = "";
+  threads.forEach(t=>{
+    const li = document.createElement("li");
+    li.className = "group";
+    li.innerHTML = `
+      <button class="w-full text-left px-3 py-2 rounded ${t.id===currentId?"bg-blue-50":"hover:bg-gray-100"}">
+        <div class="text-sm truncate">${t.title}</div>
+        <div class="text-[11px] text-gray-500 truncate">${(t.msgs[0]?.user||"")}</div>
+      </button>
+    `;
+    li.querySelector("button").onclick = ()=>setThread(t.id);
+    ul.appendChild(li);
+  });
+  if (!currentId && threads[0]) { currentId = threads[0].id; save(); }
+}
+
+function renderMsgs() {
+  const m = document.getElementById("messages");
+  const t = currentThread();
+  if (!t) {
+    m.innerHTML = `<div class="text-center text-gray-400 mt-10">左の「新規」を押して会話を始めよう</div>`;
+    return;
+  }
+  m.innerHTML = "";
+
+  t.msgs.forEach(row => {
+    const wrap = document.createElement("div");
+    const bubble = document.createElement("div");
+
+    if (row.typing === true) {
+      // アシスタント側の“…”（左・白）
+      wrap.className = "flex";
+      bubble.className = "mr-auto max-w-[80%] bg-white border rounded-2xl px-4 py-2 flex items-center gap-1";
+      bubble.innerHTML = `
+        <span class="typing-dot">●</span>
+        <span class="typing-dot">●</span>
+        <span class="typing-dot">●</span>
+      `;
+    } else if (row.role === "user") {
+      // ユーザー（右・青・改行保持）
+      wrap.className = "flex";
+      bubble.className = "ml-auto max-w-[80%] bg-blue-600 text-white rounded-2xl px-4 py-2 whitespace-pre-wrap break-words";
+      bubble.textContent = row.user;
+    } else {
+      // アシスタント（左・白・改行保持）
+      wrap.className = "flex";
+      bubble.className = "mr-auto max-w-[80%] bg-white border rounded-2xl px-4 py-2 break-words md-content";
+      bubble.innerHTML = renderMarkdown(row.assistant || "");
+      // リンクは新規タブで
+      Array.from(bubble.querySelectorAll("a")).forEach(a => { a.target = "_blank"; a.rel = "noopener noreferrer"; });
+    }
+
+    wrap.appendChild(bubble);
+    m.appendChild(wrap);
+  });
+
+  m.scrollTop = m.scrollHeight;
+}
+
+async function sendMessage(text){
+  const tid = currentId;
+  const t = getThreadById(tid); if (!t || !text.trim()) return;
+
+  if (t.msgs.length===0) { t.title = text.slice(0,20); }
+  t.msgs.push({ role:"user", user:text });
+  if (currentId === tid) renderMsgs(); 
+  save(); // ← ユーザー投稿時点は typing まだ無いので保存OK
+
+  showTyping(tid);
+  try {
+    const res = await fetch(API, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ message: text, thread_id: tid })
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+
+    const reply = (data.safe===false)
+      ? (data.answer || "ごめんね、そのお願いには応えられないよ。")
+      : (data.answer || "(空の応答)");
+
+    t.msgs.push({ role:"assistant", assistant: reply });
+    if (currentId === tid) renderMsgs(); 
+    // ここでは save() を呼ばない（typing がまだ残っているため）
+  } catch(e) {
+    t.msgs.push({ role:"assistant", assistant: "（通信エラー）もう一度ためしてみてね。" });
+    if (currentId === tid) renderMsgs();
+    // ここでも save() は呼ばない
+  } finally {
+    hideTyping(tid);   // typing を配列から除去
+    save();            // ← typing を消した“後”に保存（これで永続化されない）
+  }
+}
+
+
+const ta = document.getElementById("input");
+
+// IME入力開始/確定の検知
+ta.addEventListener("compositionstart", () => { isComposing = true; });
+ta.addEventListener("compositionend",   () => { isComposing = false; });
+
+// Enterで送信、Shift+Enterで改行
+ta.addEventListener("keydown", (e) => {
+  // e.isComposing は一部ブラウザで使える。念のため両方見ます。
+  const composing = isComposing || e.isComposing;
+  if (e.key === "Enter" && !e.shiftKey && !composing) {
+    e.preventDefault(); // 改行を入れない
+    const txt = ta.value;
+    if (txt.trim().length === 0) return; // 空送信は無視
+    ta.value = "";
+    sendMessage(txt);
+  }
+});
+
+document.getElementById("composer").addEventListener("submit", (e)=>{
+  e.preventDefault();
+  const ta = document.getElementById("input");
+  const txt = ta.value;
+  ta.value = "";
+  sendMessage(txt);
+});
+
+document.getElementById("newThread").onclick = newThread;
+renderThreads(); renderMsgs();
+if (!currentId) newThread();
+
+function setLoading(isLoading) {
+  const sp = document.getElementById("spinner");
+  const btn = document.querySelector("#composer button");
+  if (!sp || !btn) return;
+  if (isLoading) {
+    sp.classList.remove("hidden");
+    btn.disabled = true;
+    btn.classList.add("opacity-50","cursor-not-allowed");
+  } else {
+    sp.classList.add("hidden");
+    btn.disabled = false;
+    btn.classList.remove("opacity-50","cursor-not-allowed");
+  }
+}
+
+function showTyping(tid) {
+  const t = getThreadById(tid); if (!t) return;
+  t._typingActive = true;
+  t.msgs.push({ typing: true });
+  if (currentId === tid) renderMsgs();
+}
+
+function hideTyping(tid) {
+  const t = getThreadById(tid); if (!t) return;
+  for (let i = t.msgs.length - 1; i >= 0; i--) {
+    if (t.msgs[i].typing === true) { t.msgs.splice(i, 1); break; }
+  }
+  t._typingActive = false;
+  if (currentId === tid) renderMsgs();
+}
+</script>
+
+<!-- Loading spinner -->
+<div id="spinner" class="hidden fixed bottom-4 right-4 bg-white border rounded-full p-3 shadow-lg">
+  <svg class="animate-spin h-5 w-5 text-blue-600" viewBox="0 0 24 24" aria-label="処理中">
+    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+  </svg>
+</div>
+
+</body>
+</html>
