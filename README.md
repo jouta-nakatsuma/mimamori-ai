@@ -22,5 +22,6 @@ cp .env.example .env
 uvicorn guardian:app --host 127.0.0.1 --port 8787
 # ブラウザで http://127.0.0.1:8787/
 
+```
 ## NGワード管理
 NGワードは lexicons/ng_words.yaml（公開）＋ lexicons/ng_words.local.yaml（任意・非公開）をマージして使います。
