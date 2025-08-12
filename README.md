@@ -8,6 +8,8 @@
     * start_guardian.bat
     * nightly.ps1
     * deny_ollama.ps1
+* 本プログラムは、ローカルにOllamaをインストールすることを前提としています。
+https://ollama.com/
 
 ## セットアップ
 ```bash
@@ -25,3 +27,4 @@ uvicorn guardian:app --host 127.0.0.1 --port 8787
 ```
 ## NGワード管理
 NGワードは lexicons/ng_words.yaml（公開）＋ lexicons/ng_words.local.yaml（任意・非公開）をマージして使います。
+それぞれのご家庭でNGワードを定義する場合は、ng_word.yamlを参考に、ローカルにてng_words.local.yamlというファイルを作成してください。
