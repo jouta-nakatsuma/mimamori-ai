@@ -7,7 +7,6 @@
 * 本プログラムは Windows PC を前提とします（他OSは相当のファイルに置き換えてください）
   * `start_guardian.bat`
   * `nightly.ps1`
-  * `deny-ollama.ps1`
 * ローカルに Ollama をインストールしていること  
   https://ollama.com/
 
